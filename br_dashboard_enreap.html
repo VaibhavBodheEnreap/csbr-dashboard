@@ -222,6 +222,47 @@
   .cat-legend { font-size: 12.5px; color: var(--grey-mid); }
   .empty-category { font-size: 13px; color: var(--grey-mid); padding: 40px; text-align: center; grid-column: 1 / -1; }
 
+  /* ===== Category tabs ===== */
+  .cat-tabs {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 4px; overflow-x: auto;
+    background: var(--bg); border-bottom: 1px solid var(--grey-line);
+    margin: 0 0 22px; padding-top: 6px;
+  }
+  .cat-tab {
+    flex-shrink: 0; display: inline-flex; align-items: center; gap: 8px;
+    font: inherit; font-size: 14.5px; font-weight: 600; color: var(--grey-mid);
+    background: none; border: 0; border-bottom: 3px solid transparent;
+    padding: 10px 16px 9px; cursor: pointer; margin-bottom: -1px;
+  }
+  .cat-tab:hover { color: var(--charcoal); }
+  .cat-tab:focus-visible { outline: 2px solid var(--teal-mint); outline-offset: -2px; }
+  .cat-tab[aria-selected="true"] { color: var(--charcoal); border-bottom-color: var(--cat); }
+  .cat-tab .tab-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--cat); }
+  .cat-tab .tab-count {
+    font-size: 12px; font-weight: 700; color: var(--grey-mid);
+    background: var(--grey-line); border-radius: 10px; padding: 1px 8px;
+  }
+  .cat-tab[aria-selected="true"] .tab-count { background: color-mix(in srgb, var(--cat) 18%, #fff); color: var(--charcoal); }
+
+  /* ===== Chips on BR tiles ===== */
+  .tile-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; line-height: 1;
+    padding: 4px 9px 4px 7px; border-radius: 12px;
+    background: #fff; border: 1px solid var(--grey-line); color: var(--charcoal);
+  }
+  .chip-cat { background: color-mix(in srgb, var(--cat) 12%, #fff); border-color: color-mix(in srgb, var(--cat) 35%, #fff); }
+  .chip-cat i { width: 7px; height: 7px; border-radius: 50%; background: var(--cat); }
+  .chip-person .avatar {
+    width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center;
+    font-size: 9.5px; font-weight: 800; color: #fff; background: var(--teal-deep);
+  }
+  .chip-person.unassigned { color: var(--grey-mid); border-style: dashed; }
+  .chip-person.unassigned .avatar { background: var(--grey-line); color: var(--grey-mid); }
+  .panel-chips { margin: 12px 0 0; }
+
   /* category edge on BR tiles */
   .epic-tile { position: relative; overflow: hidden; }
   .epic-tile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--cat, transparent); }
@@ -291,9 +332,11 @@
 </section>
 
 <h2 class="category-heading">BRs by category</h2>
-<div class="category-row" id="category-row" role="tablist" aria-label="BR categories"></div>
+<div class="category-row" id="category-row"></div>
 
-<div class="epics-grid" id="epics-container" role="tabpanel">
+<div class="cat-tabs" id="cat-tabs" role="tablist" aria-label="Filter BRs by category"></div>
+
+<div class="epics-grid" id="epics-container" role="tabpanel" aria-labelledby="tab-all">
   <div class="loading">Loading live data from Jira…</div>
 </div>
 
@@ -307,6 +350,7 @@
     <div class="panel-header-text">
       <a href="#" id="panel-epic-key" class="epic-key" target="_blank"></a>
       <h2 id="panel-title"></h2>
+      <div class="tile-chips panel-chips" id="panel-chips"></div>
     </div>
     <button class="panel-close" onclick="closePanel()" aria-label="Close panel">✕</button>
   </div>
@@ -355,17 +399,31 @@ function ringMarkup(pct, r, stroke, label) {
 }
 
 let epics = [];
-let selectedCategory = categoryFromHash() || CATEGORY_ORDER[0];
+const ALL = "All";
+let selectedCategory = categoryFromHash() || ALL;
 
 function slug(c) { return c.toLowerCase().replace(/\s+/g, "-"); }
 function categoryFromHash() {
   const h = decodeURIComponent(location.hash.slice(1)).toLowerCase();
-  return [...CATEGORY_ORDER, UNCATEGORIZED].find(c => slug(c) === h) || null;
+  return [ALL, ...CATEGORY_ORDER, UNCATEGORIZED].find(c => slug(c) === h) || null;
 }
-function selectCategory(c) {
+function selectCategory(c, focusTab) {
   selectedCategory = c;
   history.replaceState(null, "", "#" + slug(c));
   renderEpics();
+  if (focusTab) document.getElementById("tab-" + slug(c))?.focus();
+}
+function escapeHtml(v) {
+  return String(v ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+function initials(name) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+}
+function chipsMarkup(epic) {
+  const person = epic.assignee
+    ? `<span class="chip chip-person" title="Assignee: ${escapeHtml(epic.assignee)}"><span class="avatar">${escapeHtml(initials(epic.assignee))}</span>${escapeHtml(epic.assignee.split(/\s+/)[0])}</span>`
+    : `<span class="chip chip-person unassigned" title="No assignee"><span class="avatar">?</span>Unassigned</span>`;
+  return `<span class="chip chip-cat" style="--cat:${catColor(epic.category)}"><i></i>${escapeHtml(epic.category)}</span>${person}`;
 }
 window.addEventListener("hashchange", () => {
   const c = categoryFromHash();
@@ -423,6 +481,7 @@ async function loadData() {
       epicStatus: e["Status"],
       epicStatusClass: epicStatusClass(e["Status"]),
       category: e["Category"] || UNCATEGORIZED,
+      assignee: e["Assignee"] || "",
       tasks: taskMap[e["Epic Key"]] || []
     }));
 
@@ -469,7 +528,8 @@ function renderCategories() {
   const row = document.getElementById("category-row");
   const hasUncat = epics.some(e => e.category === UNCATEGORIZED);
   const cats = hasUncat ? [...CATEGORY_ORDER, UNCATEGORIZED] : CATEGORY_ORDER;
-  if (!cats.includes(selectedCategory)) selectedCategory = CATEGORY_ORDER[0];
+  if (selectedCategory !== ALL && !cats.includes(selectedCategory)) selectedCategory = ALL;
+  renderTabs(cats);
 
   row.innerHTML = "";
   cats.forEach(cat => {
@@ -488,9 +548,9 @@ function renderCategories() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "category-card" + (active ? " active" : "") + (cat === UNCATEGORIZED ? " uncategorized" : "");
-    btn.setAttribute("role", "tab");
-    btn.setAttribute("aria-selected", active);
-    btn.onclick = () => selectCategory(cat);
+    btn.setAttribute("aria-pressed", active);
+    btn.setAttribute("aria-label", `Show ${cat} BRs`);
+    btn.onclick = () => selectCategory(active ? ALL : cat);
     btn.style.setProperty("--cat", catColor(cat));
     const wD = counts.done / n * 100, wP = counts.progress / n * 100, wN = counts.notstarted / n * 100;
     btn.innerHTML = `
@@ -510,6 +570,35 @@ function renderCategories() {
     `;
     row.appendChild(btn);
   });
+}
+
+function renderTabs(cats) {
+  const bar = document.getElementById("cat-tabs");
+  const tabs = [ALL, ...cats];
+  bar.innerHTML = "";
+  tabs.forEach((cat, idx) => {
+    const count = cat === ALL ? epics.length : epics.filter(e => e.category === cat).length;
+    const active = cat === selectedCategory;
+    const t = document.createElement("button");
+    t.type = "button";
+    t.className = "cat-tab";
+    t.id = "tab-" + slug(cat);
+    t.setAttribute("role", "tab");
+    t.setAttribute("aria-selected", active);
+    t.setAttribute("aria-controls", "epics-container");
+    t.tabIndex = active ? 0 : -1;
+    t.style.setProperty("--cat", cat === ALL ? "var(--charcoal)" : catColor(cat));
+    t.innerHTML = `${cat === ALL ? "" : '<span class="tab-dot"></span>'}${cat}<span class="tab-count">${count}</span>`;
+    t.onclick = () => selectCategory(cat);
+    t.onkeydown = (e) => {
+      const dir = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (!dir) return;
+      e.preventDefault();
+      selectCategory(tabs[(idx + dir + tabs.length) % tabs.length], true);
+    };
+    bar.appendChild(t);
+  });
+  document.getElementById("epics-container").setAttribute("aria-labelledby", "tab-" + slug(selectedCategory));
 }
 
 function renderEpics() {
@@ -533,7 +622,7 @@ function renderEpics() {
 
   renderCategories();
 
-  const visible = epics.filter(e => e.category === selectedCategory);
+  const visible = selectedCategory === ALL ? epics : epics.filter(e => e.category === selectedCategory);
   if (!visible.length) {
     container.innerHTML = '<div class="empty-category">No BRs in this category yet.</div>';
   }
@@ -560,7 +649,8 @@ function renderEpics() {
         <a href="${JIRA_BASE}${epic.key}" target="_blank" class="epic-key" onclick="event.stopPropagation()">${epic.key}</a>
         <span class="epic-status-badge ${epic.epicStatusClass}">${epic.epicStatus}</span>
       </div>
-      <div class="epic-title">${epic.summary}</div>
+      <div class="epic-title">${escapeHtml(epic.summary)}</div>
+      <div class="tile-chips">${chipsMarkup(epic)}</div>
       <div>
         <div class="tile-progress-meta">
           <span class="tile-pct ${pctClass}">${pctLabel}</span>
@@ -604,6 +694,7 @@ function openPanel(i) {
   document.getElementById("panel-epic-key").textContent = epic.key;
   document.getElementById("panel-epic-key").href = JIRA_BASE + epic.key;
   document.getElementById("panel-title").textContent = epic.summary;
+  document.getElementById("panel-chips").innerHTML = chipsMarkup(epic);
 
   const pctClass = prog.na ? "pct-na" : prog.pct === 100 ? "pct-100" : prog.pct > 0 ? "pct-partial" : "pct-zero";
   const fillClass = prog.na ? "fill-zero" : prog.pct === 100 ? "fill-100" : prog.pct > 0 ? "fill-partial" : "fill-zero";
